@@ -23,7 +23,7 @@ See the Apache License Version 2.0 for the specific language governing permissio
 
     <groupId>io.airlift</groupId>
     <artifactId>zest-parent</artifactId>
-    <version>11-SNAPSHOT</version>
+    <version>11</version>
 
     <packaging>pom</packaging>
 
@@ -56,7 +56,7 @@ See the Apache License Version 2.0 for the specific language governing permissio
     <scm>
         <connection>scm:git:git://github.com/airlift/zest.git</connection>
         <developerConnection>scm:git:git@github.com:airlift/zest.git</developerConnection>
-        <tag>HEAD</tag>
+        <tag>11</tag>
         <url>https://github.com/airlift/zest/tree/master</url>
     </scm>
 
