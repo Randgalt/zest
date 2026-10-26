@@ -16,7 +16,9 @@
 
 package com.google.inject.internal;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Binding;
+import com.google.inject.DynamicProvider;
 import com.google.inject.Key;
 import com.google.inject.Provider;
 import com.google.inject.spi.ConstructorBinding;
@@ -152,7 +154,23 @@ final class BindingProcessor
                             // instance binding.  This prevents undefined behavior where multiple injectors
                             // race to initialize the binding based on different settings.
                             if (asProviderMethod.bindToInjector(injector)) {
-                                return visitInternalProviderInstanceBindingFactory(asProviderMethod);
+                                // A DynamicProvider's members are injected like any provider
+                                // instance's: on demand, before its provider method first runs.
+                                Set<InjectionPoint> injectionPoints = ImmutableSet.of();
+                                if (provider instanceof ProviderMethod<T> providerMethod
+                                        && providerMethod.getInstance() instanceof DynamicProvider<?> dynamicProvider) {
+                                    injectionPoints = binding.getInjectionPoints();
+                                    initializer.requestInjection(
+                                                    injector,
+                                                    /* type= */ null,
+                                                    dynamicProvider,
+                                                    null,
+                                                    source,
+                                                    injectionPoints,
+                                                    errors)
+                                            .ifPresent(providerMethod::injectInstanceFirst);
+                                }
+                                return visitInternalProviderInstanceBindingFactory(asProviderMethod, injectionPoints);
                             }
                         }
                         Set<InjectionPoint> injectionPoints = binding.getInjectionPoints();
@@ -232,7 +250,8 @@ final class BindingProcessor
                      * Handle ProviderMethods specially.
                      */
                     private Boolean visitInternalProviderInstanceBindingFactory(
-                            InternalProviderInstanceBindingImpl.Factory<T> provider)
+                            InternalProviderInstanceBindingImpl.Factory<T> provider,
+                            Set<InjectionPoint> injectionPoints)
                     {
                         InternalProviderInstanceBindingImpl<T> binding =
                                 new InternalProviderInstanceBindingImpl<T>(
@@ -241,7 +260,8 @@ final class BindingProcessor
                                         source,
                                         provider,
                                         Scoping.scope(key, injector, provider, source, scoping),
-                                        scoping);
+                                        scoping,
+                                        injectionPoints);
                         switch (binding.getInitializationTiming()) {
                             case DELAYED -> scheduleDelayedInitialization(binding);
                             case EAGER -> scheduleInitialization(binding);

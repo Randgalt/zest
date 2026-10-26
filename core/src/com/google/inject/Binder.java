@@ -79,6 +79,15 @@ import java.lang.reflect.Method;
  * happen -- "letting Guice work for you".
  *
  * <pre>
+ *     bind(Service.class).toProvider(new ServiceProvider());</pre>
+ *
+ * Where {@code ServiceProvider} implements {@link DynamicProvider DynamicProvider&lt;Service&gt;},
+ * this binding calls that instance's single {@link Provides @Provides} method, injecting its
+ * parameters the same way a module's {@code @Provides} method's parameters are injected. A
+ * {@code DynamicProvider} has to be bound as an instance, as shown here, since its {@code get()}
+ * method is never the one that provides the instance.
+ *
+ * <pre>
  *     bind(Service.class).annotatedWith(Red.class).to(ServiceImpl.class);</pre>
  *
  * Like the previous example, but only applies to injection requests that use the binding annotation

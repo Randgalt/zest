@@ -100,6 +100,13 @@ public abstract class ProviderMethod<T>
     private SingleParameterInjector<?>[] parameterInjectors;
 
     /**
+     * Set by {@link #injectInstanceFirst} when {@link #instance} is a {@link
+     * com.google.inject.DynamicProvider}, whose members, like any provider instance's, are injected
+     * before it is first used.
+     */
+    private Initializable<?> instanceInitializable;
+
+    /**
      * @param method the method to invoke. Its return type must be the same type as {@code key}.
      */
     ProviderMethod(
@@ -152,6 +159,16 @@ public abstract class ProviderMethod<T>
         return annotation;
     }
 
+    Class<? extends Annotation> getScopeAnnotation()
+    {
+        return scopeAnnotation;
+    }
+
+    void injectInstanceFirst(Initializable<?> instanceInitializable)
+    {
+        this.instanceInitializable = instanceInitializable;
+    }
+
     public void configure(Binder binder)
     {
         binder = binder.withSource(method);
@@ -197,6 +214,9 @@ public abstract class ProviderMethod<T>
     {
         T t = null;
         try {
+            if (instanceInitializable != null) {
+                instanceInitializable.get(context);
+            }
             t = doProvision(SingleParameterInjector.getAll(context, parameterInjectors));
             if (t == null && !dependency.isNullable()) {
                 InternalProvisionException.onNullInjectedIntoNonNullableDependency(getMethod(), dependency);
@@ -248,6 +268,14 @@ public abstract class ProviderMethod<T>
         InternalMethodHandles.checkHasElementFactoryType(handle);
         // add a dependency parameter so `nullCheckResult` can use it.
         handle = MethodHandles.dropArguments(handle, 1, Dependency.class);
+        if (instanceInitializable != null) {
+            // Inject the instance's members first, as doProvision does.
+            handle =
+                    MethodHandles.foldArguments(
+                            handle,
+                            InternalMethodHandles.dropReturn(
+                                    InternalMethodHandles.initializableFactoryGetHandle(instanceInitializable)));
+        }
         handle = InternalMethodHandles.nullCheckResult(handle, getMethod());
         // catch everything else and rethrow as an error in provider.
         handle =
