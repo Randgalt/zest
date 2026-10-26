@@ -17,7 +17,7 @@
 package com.google.inject.internal;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.primitives.Primitives;
+import com.google.common.reflect.TypeToken;
 import com.google.inject.Binder;
 import com.google.inject.ConfigurationException;
 import com.google.inject.DynamicProvider;
@@ -243,13 +243,15 @@ public final class BindingBuilder<T>
             return toPlaceholder();
         }
         BindingImpl<T> base = getBinding();
-        Class<?> boundType = base.getKey().getTypeLiteral().getRawType();
-        if (!boundType.isAssignableFrom(Primitives.wrap(method.getReturnType()))) {
+        TypeLiteral<T> boundType = base.getKey().getTypeLiteral();
+        // Resolved against the provider's class, so type arguments are compared, not just classes
+        TypeLiteral<?> returnType = TypeLiteral.get(providerType).getReturnType(method);
+        if (!TypeToken.of(boundType.getType()).isSupertypeOf(TypeToken.of(returnType.getType()).wrap())) {
             binder.addError(
                     "@Provides method %s of %s returns %s, which is not assignable to %s",
                     method,
                     providerType,
-                    method.getReturnType(),
+                    returnType,
                     boundType);
             return toPlaceholder();
         }

@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 import static com.google.inject.Asserts.assertContains;
@@ -680,6 +682,45 @@ public class DynamicProviderTest
     }
 
     @Test
+    public void testReturnTypeArgumentsMustMatch()
+    {
+        CreationException exception =
+                assertThrows(
+                        CreationException.class,
+                        () ->
+                                Guice.createInjector(
+                                        new AbstractModule()
+                                        {
+                                            @Override
+                                            protected void configure()
+                                            {
+                                                bind(new TypeLiteral<List<Integer>>() {})
+                                                        .toProvider(new StringListProvider());
+                                            }
+                                        }));
+
+        assertContains(exception.getMessage(), "returns List<String>, which is not assignable to List<Integer>");
+    }
+
+    @Test
+    public void testReturnTypeIsResolvedAgainstTheProviderClass()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).toInstance("kiwi");
+                                bind(new TypeLiteral<List<String>>() {}).toProvider(new StringArrayListProvider());
+                            }
+                        });
+
+        assertEquals(List.of("kiwi"), injector.getInstance(new Key<List<String>>() {}));
+    }
+
+    @Test
     public void testInheritedProviderMethod()
     {
         Injector injector =
@@ -939,6 +980,29 @@ public class DynamicProviderTest
             return new SubBar(name);
         }
     }
+
+    static class StringListProvider
+            implements DynamicProvider<List<Integer>>
+    {
+        @Provides
+        List<String> create()
+        {
+            return List.of("not an integer");
+        }
+    }
+
+    abstract static class ArrayListProvider<E>
+            implements DynamicProvider<List<E>>
+    {
+        @Provides
+        ArrayList<E> create(E element)
+        {
+            return new ArrayList<>(List.of(element));
+        }
+    }
+
+    static class StringArrayListProvider
+            extends ArrayListProvider<String> {}
 
     abstract static class AbstractBarProvider
             implements DynamicProvider<Bar>
