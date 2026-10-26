@@ -476,4 +476,13 @@ public interface Binder
      * @since 4.0
      */
     void scanModulesForAnnotatedMethods(ModuleAnnotatedMethodScanner scanner);
+
+    /**
+     * Returns the attribute added under {@code key} with {@link Guice#withAttribute} when the
+     * injector was created, or {@code null} if there is none. Child injectors have the attributes of
+     * their parent.
+     *
+     * @param key name of the attribute
+     */
+    Object getAttribute(String key);
 }
