@@ -22,10 +22,12 @@ import com.google.inject.spi.Elements;
 import com.google.inject.util.Modules;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.inject.Asserts.assertContains;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -61,15 +63,47 @@ public class BinderAttributesTest
     }
 
     @Test
-    public void testMissingAttributeIsNull()
+    public void testMissingAttributeThrows()
     {
-        ReadAttribute withoutAttributes = new ReadAttribute("foo");
-        Guice.createInjector(withoutAttributes);
-        assertNull(withoutAttributes.value);
+        AtomicReference<ConfigurationException> thrown = new AtomicReference<>();
+        Guice.withAttribute("bar", "baz")
+                .createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                try {
+                                    binder().getAttribute("foo");
+                                }
+                                catch (ConfigurationException e) {
+                                    thrown.set(e);
+                                }
+                            }
+                        });
+        assertContains(thrown.get().getMessage(), "No attribute \"foo\" was added with Guice.withAttribute()");
+    }
 
-        ReadAttribute withOtherAttribute = new ReadAttribute("foo");
-        Guice.withAttribute("bar", "baz").createInjector(withOtherAttribute);
-        assertNull(withOtherAttribute.value);
+    @Test
+    public void testDefaultImplementationThrows()
+    {
+        Binder binder = (Binder) Proxy.newProxyInstance(
+                Binder.class.getClassLoader(),
+                new Class<?>[] {Binder.class},
+                InvocationHandler::invokeDefault);
+        ConfigurationException e = assertThrows(ConfigurationException.class, () -> binder.getAttribute("foo"));
+        assertContains(e.getMessage(), "No attribute \"foo\" was added with Guice.withAttribute()");
+    }
+
+    @Test
+    public void testMissingAttributeFailsInjectorCreation()
+    {
+        CreationException e =
+                assertThrows(CreationException.class, () -> Guice.createInjector(new ReadAttribute("foo")));
+        assertContains(
+                e.getMessage(),
+                "No attribute \"foo\" was added with Guice.withAttribute()",
+                "at BinderAttributesTest$ReadAttribute.configure");
     }
 
     @Test
@@ -85,9 +119,7 @@ public class BinderAttributesTest
     {
         Guice.Builder builder = Guice.withAttribute("foo", "bar");
         builder.withAttribute("baz", "qux");
-        ReadAttribute baz = new ReadAttribute("baz");
-        builder.createInjector(baz);
-        assertNull(baz.value);
+        assertThrows(CreationException.class, () -> builder.createInjector(new ReadAttribute("baz")));
     }
 
     @Test

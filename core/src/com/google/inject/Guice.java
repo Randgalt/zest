@@ -100,6 +100,7 @@ public final class Guice
     /**
      * Returns a builder for injectors whose binders return {@code value} from {@link
      * Binder#getAttribute} for {@code key}. Add more attributes with {@link Builder#withAttribute}.
+     * Injectors created with the other methods of this class have no attributes.
      */
     public static Builder withAttribute(String key, Object value)
     {

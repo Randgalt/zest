@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.inject.AbstractModule;
 import com.google.inject.Binder;
 import com.google.inject.Binding;
+import com.google.inject.ConfigurationException;
 import com.google.inject.Key;
 import com.google.inject.MembersInjector;
 import com.google.inject.Module;
@@ -132,7 +133,7 @@ public final class Elements
 
     /**
      * Records the elements executed by {@code modules}, whose binders return {@code attributes} from
-     * {@link Binder#getAttribute}.
+     * {@link Binder#getAttribute} and throw for any other key.
      */
     public static List<Element> getElements(
             Stage stage,
@@ -755,7 +756,14 @@ public final class Elements
         public Object getAttribute(String key)
         {
             requireNonNull(key, "key");
-            return attributes.get(key);
+            Object value = attributes.get(key);
+            if (value == null) {
+                Message message = new Message(
+                        getElementSource(),
+                        Errors.format("No attribute \"%s\" was added with Guice.withAttribute()", key));
+                throw new ConfigurationException(ImmutableList.of(message));
+            }
+            return value;
         }
 
         @Override
