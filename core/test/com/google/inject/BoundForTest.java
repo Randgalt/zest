@@ -55,6 +55,18 @@ public class BoundForTest
         assertEquals(
                 Annotated.class.getDeclaredField("array").getAnnotation(BoundFor.class).toString(),
                 boundFor(int[].class).toString());
+
+        class Local {}
+
+        class LocalAnnotated
+        {
+            @BoundFor(Local.class)
+            Object local;
+        }
+
+        assertEquals(
+                LocalAnnotated.class.getDeclaredField("local").getAnnotation(BoundFor.class).toString(),
+                boundFor(Local.class).toString());
     }
 
     @Test
@@ -162,9 +174,11 @@ public class BoundForTest
                                     protected void configure()
                                     {
                                         bind(Mapper.class).annotatedWith(BoundFor.class).toInstance(DEFAULT_MAPPER);
+                                        bind(ForgetfulConsumer.class);
                                     }
                                 }));
 
+        // the rejected binding doesn't also stop the unqualified Mapper from being created just in time
         assertEquals(1, exception.getErrorMessages().size());
         assertContains(
                 exception.getMessage(),
@@ -230,6 +244,32 @@ public class BoundForTest
     }
 
     @Test
+    public void testModuleOrderDoesNotMatter()
+    {
+        CreationException exception =
+                assertThrows(
+                        CreationException.class,
+                        () -> Guice.createInjector(
+                                new AbstractModule()
+                                {
+                                    @Override
+                                    protected void configure()
+                                    {
+                                        // provider lookups are resolved as soon as the bindings are processed
+                                        getProvider(Mapper.class);
+                                        bind(ForgetfulConsumer.class);
+                                    }
+                                },
+                                new MapperModule()));
+
+        assertEquals(2, exception.getErrorMessages().size());
+        assertContains(
+                exception.getMessage(),
+                "BoundForTest$Mapper is not explicitly bound, and is not created just in time",
+                "BoundForTest$Mapper is not explicitly bound, and is not created just in time");
+    }
+
+    @Test
     public void testUnqualifiedLookupIsNotCreatedJustInTime()
     {
         Injector injector = Guice.createInjector(new MapperModule());
@@ -238,6 +278,9 @@ public class BoundForTest
         assertContains(exception.getMessage(), "BoundForTest$Mapper is not explicitly bound, and is not created just in time");
 
         exception = assertThrows(ConfigurationException.class, () -> injector.getProvider(Mapper.class));
+        assertContains(exception.getMessage(), "BoundForTest$Mapper is not explicitly bound, and is not created just in time");
+
+        exception = assertThrows(ConfigurationException.class, () -> injector.getBinding(Mapper.class));
         assertContains(exception.getMessage(), "BoundForTest$Mapper is not explicitly bound, and is not created just in time");
 
         // types without @BoundFor bindings are still created just in time
@@ -327,6 +370,9 @@ public class BoundForTest
         // the just-in-time binding that the links target is not used for unqualified injections
         ConfigurationException exception = assertThrows(ConfigurationException.class, () -> injector.getInstance(Mapper.class));
         assertContains(exception.getMessage(), "BoundForTest$Mapper is not explicitly bound, and is not created just in time");
+
+        // but getBinding() still returns it, as tools that walk the binding graph need
+        assertEquals(Key.get(Mapper.class), injector.getBinding(Mapper.class).getKey());
     }
 
     @Test

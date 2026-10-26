@@ -25,9 +25,12 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 /**
  * Qualifies a binding with a class, so that bindings of the same type can be told apart without
  * declaring a binding annotation for each of them. The class can be any class: usually the one the
- * binding is for, or the module that makes it. Create one to bind with {@link Binder#boundFor}:
+ * binding is for, or the module that makes it. Create one to bind with {@link Binder#boundFor},
+ * which as a static interface method is called through {@code Binder} or imported statically:
  *
  * <pre>
+ *     import static com.google.inject.Binder.boundFor;
+ *     . . .
  *     bind(HttpClient.class).annotatedWith(boundFor(GovernanceService.class)).toInstance(client);
  *
  *     {@literal @}Inject

@@ -162,7 +162,7 @@ import java.lang.reflect.Method;
  *
  * <pre>
  *     bind(Service.class)
- *         .annotatedWith(boundFor(BillingModule.class))
+ *         .annotatedWith(Binder.boundFor(BillingModule.class))
  *         .to(BillingService.class);</pre>
  *
  * Qualifies the binding with a class rather than a name, for injection requests annotated with
@@ -243,10 +243,10 @@ public interface Binder
      * binding with:
      *
      * <pre>
-     *     bind(Service.class).annotatedWith(boundFor(BillingModule.class)).to(BillingService.class);</pre>
+     *     bind(Service.class).annotatedWith(Binder.boundFor(BillingModule.class)).to(BillingService.class);</pre>
      *
-     * As a static method it is not inherited, so a module calls it as {@code Binder.boundFor()} or
-     * imports it statically.
+     * As a static interface method it is not inherited, so it can't be called on a binder or
+     * unqualified in a module: call it as {@code Binder.boundFor()} or import it statically.
      */
     static BoundFor boundFor(Class<?> type)
     {

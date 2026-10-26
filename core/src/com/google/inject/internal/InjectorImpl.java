@@ -309,6 +309,8 @@ final class InjectorImpl
                 var binding = injector.jitBindingData.getJitBinding(key);
 
                 if (binding != null) {
+                    // Like jitDisabled below, an existing binding (such as a linked binding's target)
+                    // is still returned by getBinding(), which tools use to walk the binding graph
                     if (boundForRequired && jitType == JitLimitation.NO_JIT) {
                         throw boundForRequired(key, errors);
                     }

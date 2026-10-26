@@ -76,9 +76,9 @@ class InjectorBindingData
     // and all of them run after the explicit-binding set is final, so most injectors never pay for
     // indexing every binding. Benign race: concurrent first calls build identical immutable maps.
     private volatile ImmutableListMultimap<TypeLiteral<?>, Binding<?>> indexedExplicitBindings;
-    // The keys of the injector's explicit bindings that are qualified with @BoundFor, indexed by type.
-    // Kept up to date as bindings are put, since just-in-time bindings are created while explicit
-    // bindings are still being processed.
+    // The keys of the injector's explicit bindings that are qualified with a @BoundFor class, indexed
+    // by type. Like the explicit bindings it only changes while the injector is created, all before
+    // the first just-in-time binding is, so every injector's view of its ancestors is complete.
     private final SetMultimap<TypeLiteral<?>, Key<?>> boundForKeys = LinkedHashMultimap.create();
 
     InjectorBindingData(Optional<InjectorBindingData> parent)
@@ -109,7 +109,9 @@ class InjectorBindingData
     public void putBinding(Key<?> key, BindingImpl<?> binding)
     {
         explicitBindingsMutable.put(key, binding);
-        if (key.getAnnotationType() == BoundFor.class) {
+        // a @BoundFor without a class is an error reported elsewhere, and is not indexed so that it
+        // doesn't also cause errors for the unqualified type
+        if (key.getAnnotationType() == BoundFor.class && key.hasAttributes()) {
             boundForKeys.put(key.getTypeLiteral(), key);
         }
     }
