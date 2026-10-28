@@ -22,20 +22,31 @@ package com.google.inject;
  *
  * <p>Where {@link Provider} declares {@code T get()} and must therefore obtain its own dependencies
  * by other means, a {@code DynamicProvider} declares exactly one {@literal @}{@link Provides} method,
- * whose parameters are injected the same way as those of a module's {@literal @}Provides method:
+ * whose parameters are injected the same way as those of a module's {@literal @}Provides method.
+ * Unlike a module's method, it belongs to an instance that the binding supplies, so one class can be
+ * bound several times with different state, such as once per qualifier:
  *
  * <pre>{@code
- * class TransactionProvider
- *         implements DynamicProvider<Transaction>
+ * class DataSourceProvider
+ *         implements DynamicProvider<DataSource>
  * {
- *     @Provides
- *     Transaction create(Connection connection, @Named("isolation") int isolation)
+ *     private final String name;
+ *
+ *     DataSourceProvider(String name)
  *     {
- *         return connection.beginTransaction(isolation);
+ *         this.name = name;
+ *     }
+ *
+ *     @Provides
+ *     DataSource create(DataSourceFactory factory, @Named("pool.size") int poolSize)
+ *     {
+ *         return factory.create(name, poolSize);
  *     }
  * }
  *
- * bind(Transaction.class).toProvider(new TransactionProvider());
+ * for (String name : List.of("primary", "replica")) {
+ *     bind(DataSource.class).annotatedWith(Names.named(name)).toProvider(new DataSourceProvider(name));
+ * }
  * }</pre>
  *
  * <p>The provider method may have any name and any access modifier, and its return type must be
@@ -52,14 +63,14 @@ package com.google.inject;
  * collaborators:
  *
  * <pre>{@code
- * class TransactionProvider
- *         implements DynamicProvider<Transaction>
+ * class DataSourceProvider
+ *         implements DynamicProvider<DataSource>
  * {
  *     @Inject
  *     private Metrics metrics;
  *
  *     @Provides
- *     Transaction create(Connection connection) { ... }
+ *     DataSource create(DataSourceFactory factory) { ... }
  * }
  * }</pre>
  *
