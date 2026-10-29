@@ -26,10 +26,12 @@ import com.google.inject.spi.ProviderInstanceBinding;
 import com.google.inject.spi.ProvidesMethodBinding;
 import com.google.inject.spi.ProvidesMethodTargetVisitor;
 import com.google.inject.util.Modules;
+import com.google.inject.util.Types;
 import org.junit.jupiter.api.Test;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -1036,6 +1038,69 @@ public class DynamicProviderTest
     }
 
     @Test
+    public void testWildcardReturnTypeIsAnUncheckedConversion()
+    {
+        // The key's type argument is only known at runtime, so the caller casts the key, as JsonCodecBinder does
+        @SuppressWarnings("unchecked")
+        Key<Codec<?>> key = (Key<Codec<?>>) Key.get(Types.newParameterizedTypeWithOwner(DynamicProviderTest.class, Codec.class, String.class));
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(key).toProvider(new WildcardCodecProvider(String.class));
+                            }
+                        });
+
+        assertEquals(String.class, injector.getInstance(new Key<Codec<String>>() {}).type);
+    }
+
+    @Test
+    public void testWildcardSubtypeReturnTypeIsAnUncheckedConversion()
+    {
+        @SuppressWarnings("unchecked")
+        Key<List<?>> key = (Key<List<?>>) Key.get(new TypeLiteral<List<String>>() {}.getType());
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(key).toProvider(new WildcardArrayListProvider());
+                            }
+                        });
+
+        assertEquals(List.of("guava"), injector.getInstance(new Key<List<String>>() {}));
+    }
+
+    @Test
+    public void testWildcardReturnTypeThatCannotMatchIsRejected()
+    {
+        @SuppressWarnings("unchecked")
+        Key<List<? extends Number>> key =
+                (Key<List<? extends Number>>) Key.get(new TypeLiteral<List<String>>() {}.getType());
+        CreationException exception =
+                assertThrows(
+                        CreationException.class,
+                        () ->
+                                Guice.createInjector(
+                                        new AbstractModule()
+                                        {
+                                            @Override
+                                            protected void configure()
+                                            {
+                                                bind(key).toProvider(new NumberListProvider());
+                                            }
+                                        }));
+
+        assertContains(
+                exception.getMessage(), "returns List<? extends Number>, which is not assignable to List<String>");
+    }
+
+    @Test
     public void testReturnTypeArgumentsMustMatch()
     {
         CreationException exception =
@@ -1338,6 +1403,53 @@ public class DynamicProviderTest
         SubBar create(@Named("name") String name)
         {
             return new SubBar(name);
+        }
+    }
+
+    static class Codec<T>
+    {
+        final Type type;
+
+        Codec(Type type)
+        {
+            this.type = type;
+        }
+    }
+
+    static class WildcardCodecProvider
+            implements DynamicProvider<Codec<?>>
+    {
+        private final Type type;
+
+        WildcardCodecProvider(Type type)
+        {
+            this.type = type;
+        }
+
+        @Provides
+        Codec<?> create()
+        {
+            return new Codec<>(type);
+        }
+    }
+
+    static class WildcardArrayListProvider
+            implements DynamicProvider<ArrayList<?>>
+    {
+        @Provides
+        ArrayList<?> create()
+        {
+            return new ArrayList<>(List.of("guava"));
+        }
+    }
+
+    static class NumberListProvider
+            implements DynamicProvider<List<? extends Number>>
+    {
+        @Provides
+        List<? extends Number> create()
+        {
+            return List.of(1);
         }
     }
 

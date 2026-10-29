@@ -50,7 +50,8 @@ package com.google.inject;
  * }</pre>
  *
  * <p>The provider method may have any name and any access modifier, and its return type must be
- * assignable to the bound type. Its parameters are resolved from the injector on every provision,
+ * assignable to the bound type, or convertible to it unchecked, as {@code JsonCodec<?>} is to a
+ * {@code JsonCodec<Foo>} key that the caller casts to {@code Key<JsonCodec<?>>}. Its parameters are resolved from the injector on every provision,
  * so missing bindings are reported when the injector is created, not when the first instance is
  * requested. It follows the rules for a module's {@literal @}Provides methods, so it may not be
  * overridden. The binding supplies the key and the scope, so the method may not have a binding

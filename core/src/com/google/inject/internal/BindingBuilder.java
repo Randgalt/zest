@@ -361,7 +361,7 @@ public final class BindingBuilder<T>
         TypeLiteral<T> boundType = getBinding().getKey().getTypeLiteral();
         // Resolved against providerType, so type arguments are compared, not just classes
         TypeLiteral<?> returnType = providerType.getReturnType(method);
-        if (!TypeToken.of(boundType.getType()).isSupertypeOf(TypeToken.of(returnType.getType()).wrap())) {
+        if (!canProvide(TypeToken.of(returnType.getType()).wrap(), TypeToken.of(boundType.getType()))) {
             binder.addError(
                     "@Provides method %s of %s returns %s, which is not assignable to %s",
                     method,
@@ -385,6 +385,31 @@ public final class BindingBuilder<T>
                 new ProviderInstanceBindingImpl<T>(
                         base.getSource(), base.getKey(), base.getScoping(), ImmutableSet.of(), Providers.of(null)));
         return this;
+    }
+
+    /**
+     * Whether a provider method that returns {@code returnType} can provide {@code boundType}: either
+     * it is assignable, or it is an unchecked conversion that its type arguments could make true, as
+     * for {@code JsonCodec<?>} bound as {@code JsonCodec<Foo>}, which a caller can only bind by casting
+     * the key. A conversion that no type arguments make true, such as from {@code List<String>} to
+     * {@code List<Integer>}, is rejected.
+     */
+    private static boolean canProvide(TypeToken<?> returnType, TypeToken<?> boundType)
+    {
+        if (boundType.isSupertypeOf(returnType)) {
+            return true;
+        }
+        Class<?> rawReturnType = returnType.getRawType();
+        if (!boundType.getRawType().isAssignableFrom(rawReturnType)) {
+            return false;
+        }
+        try {
+            // The bound type as a rawReturnType, such as ArrayList<String> for List<String>
+            return returnType.isSupertypeOf(boundType.getSubtype(rawReturnType));
+        }
+        catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     /**
