@@ -59,8 +59,9 @@ public interface LinkedBindingBuilder<T>
     /**
      * See the EDSL examples at {@link com.google.inject.Binder}.
      *
-     * <p>A {@link DynamicProvider} instance passed here is provisioned through its
-     * {@link com.google.inject.Provides} method rather than through {@code get()}.
+     * <p>A {@link DynamicProvider} passed here, or by type to another {@code toProvider} method, is
+     * provisioned through its {@link com.google.inject.Provides} method rather than through
+     * {@code get()}.
      *
      * @see com.google.inject.Injector#injectMembers
      */

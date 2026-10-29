@@ -26,6 +26,7 @@ import com.google.inject.Provider;
 import com.google.inject.TypeLiteral;
 import com.google.inject.binder.AnnotatedBindingBuilder;
 import com.google.inject.binder.ScopedBindingBuilder;
+import com.google.inject.spi.Dependency;
 import com.google.inject.spi.Element;
 import com.google.inject.spi.InjectionPoint;
 import com.google.inject.spi.Message;
@@ -129,13 +130,13 @@ public final class BindingBuilder<T>
         checkNotTargetted();
 
         if (provider instanceof DynamicProvider<?> dynamicProvider) {
-            return toDynamicProvider(dynamicProvider);
+            return toDynamicProviderInstance(dynamicProvider);
         }
-        // A DynamicProvider binding that is applied again, as Modules.override does, supplies the
-        // ProviderMethod it was bound to.
+        // A DynamicProvider instance binding that is applied again, as Modules.override does,
+        // supplies the ProviderMethod it was bound to.
         if (provider instanceof ProviderMethod<?> providerMethod
                 && providerMethod.getInstance() instanceof DynamicProvider<?> dynamicProvider) {
-            return toDynamicProvider(dynamicProvider);
+            return toDynamicProviderInstance(dynamicProvider);
         }
 
         // lookup the injection points, adding any errors to the binder's errors list
@@ -176,14 +177,8 @@ public final class BindingBuilder<T>
         requireNonNull(providerKey, "providerKey");
         checkNotTargetted();
 
-        Class<?> providerType = providerKey.getTypeLiteral().getRawType();
-        if (DynamicProvider.class.isAssignableFrom(providerType)) {
-            binder.addError(
-                    "%s is a DynamicProvider, so it must be bound as an instance:"
-                            + " use toProvider(new %s()) rather than binding it by type",
-                    providerType,
-                    providerType.getSimpleName());
-            return toPlaceholder();
+        if (DynamicProvider.class.isAssignableFrom(providerKey.getTypeLiteral().getRawType())) {
+            return toDynamicProviderType(providerKey);
         }
 
         BindingImpl<T> base = getBinding();
@@ -197,62 +192,11 @@ public final class BindingBuilder<T>
      * Binds {@code dynamicProvider}'s {@literal @}Provides method the way a module's is bound, except
      * that the key and scope come from this binding rather than from the method.
      */
-    private BindingBuilder<T> toDynamicProvider(DynamicProvider<?> dynamicProvider)
+    private BindingBuilder<T> toDynamicProviderInstance(DynamicProvider<?> dynamicProvider)
     {
         Class<?> providerType = dynamicProvider.getClass();
-        if (implementsGet(dynamicProvider)) {
-            binder.addError(
-                    "%s implements get(), which is never called for a DynamicProvider; implement Provider"
-                            + " instead, or remove get() so that the @Provides method provides the instance",
-                    providerType);
-            return toPlaceholder();
-        }
-
-        List<ProviderMethod<?>> providerMethods =
-                ((ProviderMethodsModule) ProviderMethodsModule.forObject(dynamicProvider))
-                        .getProviderMethods(binder);
-        if (providerMethods.size() != 1) {
-            binder.addError(
-                    "%s must have exactly one @Provides method, found %s%s",
-                    providerType,
-                    providerMethods.size(),
-                    providerMethods.isEmpty()
-                            ? ""
-                            : ": " + providerMethods.stream()
-                                     .map(providerMethod -> providerMethod.getMethod().toString())
-                                     .collect(joining(", ")));
-            return toPlaceholder();
-        }
-
-        ProviderMethod<?> providerMethod = providerMethods.getFirst();
-        Method method = providerMethod.getMethod();
-        if (providerMethod.getKey().getAnnotationType() != null) {
-            binder.addError(
-                    "@Provides method %s of %s has a binding annotation, which a DynamicProvider would"
-                            + " ignore; use annotatedWith() on the binding instead",
-                    method,
-                    providerType);
-            return toPlaceholder();
-        }
-        if (providerMethod.getScopeAnnotation() != null) {
-            binder.addError(
-                    "@Provides method %s of %s has a scope annotation, which a DynamicProvider would"
-                            + " ignore; use in() on the binding instead",
-                    method,
-                    providerType);
-            return toPlaceholder();
-        }
-        BindingImpl<T> base = getBinding();
-        TypeLiteral<T> boundType = base.getKey().getTypeLiteral();
-        // Resolved against the provider's class, so type arguments are compared, not just classes
-        TypeLiteral<?> returnType = TypeLiteral.get(providerType).getReturnType(method);
-        if (!TypeToken.of(boundType.getType()).isSupertypeOf(TypeToken.of(returnType.getType()).wrap())) {
-            binder.addError(
-                    "@Provides method %s of %s returns %s, which is not assignable to %s",
-                    method,
-                    providerType,
-                    returnType,
-                    boundType);
+        ProviderMethod<?> providerMethod = findProviderMethod(TypeLiteral.get(providerType));
+        if (providerMethod == null) {
             return toPlaceholder();
         }
 
@@ -267,6 +211,7 @@ public final class BindingBuilder<T>
 
         // The binding carries the DynamicProvider's injection points, as it would a provider
         // instance's, so that BindingProcessor has its members injected before its first use.
+        BindingImpl<T> base = getBinding();
         setBinding(
                 new ProviderInstanceBindingImpl<T>(
                         base.getSource(),
@@ -275,13 +220,122 @@ public final class BindingBuilder<T>
                         injectionPoints,
                         ProviderMethod.create(
                                 base.getKey(),
-                                method,
+                                providerMethod.getMethod(),
                                 dynamicProvider,
                                 ImmutableSet.copyOf(providerMethod.getDependencies()),
                                 null,
                                 true,
                                 providerMethod.getAnnotation())));
         return this;
+    }
+
+    /**
+     * Binds the {@literal @}Provides method of the DynamicProvider type that {@code providerKey}
+     * names, as {@link #toDynamicProviderInstance} binds an instance's, except that the instance to
+     * call it on is injected through {@code providerKey} on every provision, the way a provider bound
+     * by type is.
+     */
+    private BindingBuilder<T> toDynamicProviderType(Key<?> providerKey)
+    {
+        ProviderMethod<?> providerMethod = findProviderMethod(providerKey.getTypeLiteral());
+        if (providerMethod == null) {
+            return toPlaceholder();
+        }
+
+        // The instance is the provider method's first dependency
+        ImmutableSet<Dependency<?>> dependencies =
+                ImmutableSet.<Dependency<?>>builder()
+                        .add(Dependency.get(providerKey))
+                        .addAll(providerMethod.getDependencies())
+                        .build();
+        BindingImpl<T> base = getBinding();
+        setBinding(
+                new ProviderInstanceBindingImpl<T>(
+                        base.getSource(),
+                        base.getKey(),
+                        base.getScoping(),
+                        ImmutableSet.of(),
+                        ProviderMethod.create(
+                                base.getKey(),
+                                providerMethod.getMethod(),
+                                null,
+                                dependencies,
+                                null,
+                                true,
+                                providerMethod.getAnnotation())));
+        return this;
+    }
+
+    /**
+     * Returns the single {@literal @}Provides method of {@code providerType}, a DynamicProvider type,
+     * with its types resolved against the type arguments of {@code providerType}. Returns null after
+     * reporting why {@code providerType} cannot provide this binding's type.
+     */
+    private ProviderMethod<?> findProviderMethod(TypeLiteral<?> providerType)
+    {
+        Class<?> rawType = providerType.getRawType();
+        if (implementsGet(rawType)) {
+            binder.addError(
+                    "%s implements get(), which is never called for a DynamicProvider; implement Provider"
+                            + " instead, or remove get() so that the @Provides method provides the instance",
+                    rawType);
+            return null;
+        }
+
+        List<ProviderMethod<?>> providerMethods;
+        try {
+            providerMethods = ProviderMethodsModule.forType(providerType).getProviderMethods(binder);
+        }
+        catch (ConfigurationException e) {
+            // A provider method whose types cannot be keys, such as a type parameter that providerType
+            // does not resolve
+            copyErrorsToBinder(e);
+            return null;
+        }
+        if (providerMethods.size() != 1) {
+            binder.addError(
+                    "%s must have exactly one @Provides method, found %s%s",
+                    rawType,
+                    providerMethods.size(),
+                    providerMethods.isEmpty()
+                            ? ""
+                            : ": " + providerMethods.stream()
+                                     .map(providerMethod -> providerMethod.getMethod().toString())
+                                     .collect(joining(", ")));
+            return null;
+        }
+
+        ProviderMethod<?> providerMethod = providerMethods.getFirst();
+        Method method = providerMethod.getMethod();
+        if (providerMethod.getKey().getAnnotationType() != null) {
+            binder.addError(
+                    "@Provides method %s of %s has a binding annotation, which a DynamicProvider would"
+                            + " ignore; use annotatedWith() on the binding instead",
+                    method,
+                    rawType);
+            return null;
+        }
+        if (providerMethod.getScopeAnnotation() != null) {
+            binder.addError(
+                    "@Provides method %s of %s has a scope annotation, which a DynamicProvider would"
+                            + " ignore; use in() on the binding instead",
+                    method,
+                    rawType);
+            return null;
+        }
+        TypeLiteral<T> boundType = getBinding().getKey().getTypeLiteral();
+        // Resolved against providerType, so type arguments are compared, not just classes
+        TypeLiteral<?> returnType = providerType.getReturnType(method);
+        if (!TypeToken.of(boundType.getType()).isSupertypeOf(TypeToken.of(returnType.getType()).wrap())) {
+            binder.addError(
+                    "@Provides method %s of %s returns %s, which is not assignable to %s",
+                    method,
+                    rawType,
+                    returnType,
+                    boundType);
+            return null;
+        }
+        return providerMethod;
     }
 
     /**
@@ -299,23 +353,17 @@ public final class BindingBuilder<T>
     }
 
     /**
-     * Whether {@code dynamicProvider} overrides {@link DynamicProvider#get()}, which is never called.
-     * Calling it is more reliable than reflecting over the hierarchy, which would have to account for
-     * overrides inherited from a superclass and from an interface that extends
-     * {@code DynamicProvider}. An override that itself throws is still an override: whatever it does,
-     * it is not the unimplemented default.
+     * Whether {@code providerType} overrides {@link DynamicProvider#get()}, which is never called.
+     * Reflection finds the most specific public {@code get()}, so this covers an override inherited
+     * from a superclass or from an interface that extends {@code DynamicProvider}.
      */
-    private static boolean implementsGet(DynamicProvider<?> dynamicProvider)
+    private static boolean implementsGet(Class<?> providerType)
     {
         try {
-            dynamicProvider.get();
-            return true;
+            return providerType.getMethod("get").getDeclaringClass() != DynamicProvider.class;
         }
-        catch (UnsupportedOperationException e) {
-            return false;
-        }
-        catch (Throwable t) {
-            return true;
+        catch (NoSuchMethodException e) {
+            throw new AssertionError(e);
         }
     }
 

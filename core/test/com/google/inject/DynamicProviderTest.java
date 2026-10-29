@@ -20,6 +20,7 @@ import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Named;
 import com.google.inject.spi.DefaultBindingTargetVisitor;
 import com.google.inject.spi.Dependency;
+import com.google.inject.spi.Elements;
 import com.google.inject.spi.HasDependencies;
 import com.google.inject.spi.ProviderInstanceBinding;
 import com.google.inject.spi.ProvidesMethodBinding;
@@ -298,7 +299,7 @@ public class DynamicProviderTest
         assertContains(
                 exception.getMessage(),
                 BarProvider.class.getName(),
-                "bind the instance with toProvider()");
+                "bind it with toProvider() or @ProvidedBy");
     }
 
     @Test
@@ -326,7 +327,35 @@ public class DynamicProviderTest
     }
 
     @Test
-    public void testGetOverriddenToThrowUnsupportedIsIndistinguishableFromTheDefault()
+    public void testGetOverriddenToThrowUnsupportedIsRejected()
+    {
+        assertContains(
+                creationErrorFor(new UnsupportedGetProvider()),
+                "implements get(), which is never called for a DynamicProvider");
+    }
+
+    @Test
+    public void testImplementedGetIsRejectedWhenBoundByType()
+    {
+        CreationException exception =
+                assertThrows(
+                        CreationException.class,
+                        () ->
+                                Guice.createInjector(
+                                        new AbstractModule()
+                                        {
+                                            @Override
+                                            protected void configure()
+                                            {
+                                                bind(Bar.class).toProvider(InheritedGetProvider.class);
+                                            }
+                                        }));
+
+        assertContains(exception.getMessage(), "implements get(), which is never called for a DynamicProvider");
+    }
+
+    @Test
+    public void testBoundByType()
     {
         Injector injector =
                 Guice.createInjector(
@@ -335,15 +364,211 @@ public class DynamicProviderTest
                             @Override
                             protected void configure()
                             {
-                                bind(Bar.class).toProvider(new UnsupportedGetProvider());
+                                bind(String.class).annotatedWith(named("name")).toInstance("lime");
+                                bind(Bar.class).toProvider(BarProvider.class);
                             }
                         });
 
-        assertEquals("default", injector.getInstance(Bar.class).name);
+        assertEquals("lime", injector.getInstance(Bar.class).name);
     }
 
     @Test
-    public void testCannotBeBoundByType()
+    public void testBoundByTypeIsInjectedIntoMembers()
+    {
+        // Member injection links its dependencies through method handles rather than provisioning them
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).annotatedWith(named("name")).toInstance("mango");
+                                bind(Bar.class).toProvider(BarProvider.class);
+                            }
+                        });
+
+        assertEquals("mango", injector.getInstance(FieldBarHolder.class).bar.name);
+    }
+
+    @Test
+    public void testBoundByKeyUsesThatKeysBinding()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(NamingBarProvider.class).annotatedWith(named("kiwi")).toInstance(new NamingBarProvider("kiwi"));
+                                bind(Bar.class).toProvider(Key.get(NamingBarProvider.class, named("kiwi")));
+                            }
+                        });
+
+        assertEquals("kiwi", injector.getInstance(Bar.class).name);
+    }
+
+    @Test
+    public void testBoundByTypeIsConstructorInjected()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).annotatedWith(named("name")).toInstance("quince");
+                                bind(Bar.class).toProvider(ConstructorInjectedBarProvider.class);
+                            }
+                        });
+
+        assertEquals("quince", injector.getInstance(Bar.class).name);
+    }
+
+    @Test
+    public void testBoundByTypeGetsTheProviderOnEveryProvision()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(ProviderHolder.class).toProvider(SelfProvidingProvider.class);
+                            }
+                        });
+
+        assertNotSame(
+                injector.getInstance(ProviderHolder.class).provider,
+                injector.getInstance(ProviderHolder.class).provider);
+    }
+
+    @Test
+    public void testBoundByTypeUsesTheProvidersScope()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(SelfProvidingProvider.class).in(Singleton.class);
+                                bind(ProviderHolder.class).toProvider(SelfProvidingProvider.class);
+                            }
+                        });
+
+        ProviderHolder first = injector.getInstance(ProviderHolder.class);
+        ProviderHolder second = injector.getInstance(ProviderHolder.class);
+        assertNotSame(first, second);
+        assertSame(first.provider, second.provider);
+    }
+
+    @Test
+    public void testBoundByTypeUsesTheBindingsScope()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(ProviderHolder.class).toProvider(SelfProvidingProvider.class).in(Singleton.class);
+                            }
+                        });
+
+        assertSame(injector.getInstance(ProviderHolder.class), injector.getInstance(ProviderHolder.class));
+    }
+
+    @Test
+    public void testBoundByTypeLiteralResolvesTypeArguments()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).toInstance("fig");
+                                bind(new TypeLiteral<List<String>>() {})
+                                        .toProvider(new TypeLiteral<ElementListProvider<String>>() {});
+                            }
+                        });
+
+        assertEquals(List.of("fig"), injector.getInstance(new Key<List<String>>() {}));
+    }
+
+    @Test
+    public void testBoundByTypeExposesTheProviderAsADependency()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).annotatedWith(named("name")).toInstance("pomelo");
+                                bind(Bar.class).toProvider(BarProvider.class);
+                            }
+                        });
+
+        ProvidesMethodBinding<?> binding =
+                injector.getBinding(Bar.class).acceptTargetVisitor(new ProvidesMethodVisitor());
+        assertNull(binding.getEnclosingInstance());
+        assertEquals(
+                List.of(Key.get(BarProvider.class), Key.get(String.class, named("name"))),
+                ((HasDependencies) binding).getDependencies().stream().map(Dependency::getKey).toList());
+    }
+
+    @Test
+    public void testBoundByTypeInAMultibinder()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).annotatedWith(named("name")).toInstance("yuzu");
+                                Multibinder.newSetBinder(binder(), Bar.class)
+                                        .addBinding()
+                                        .toProvider(BarProvider.class);
+                            }
+                        });
+
+        Set<Bar> bars = injector.getInstance(new Key<Set<Bar>>() {});
+        assertEquals(1, bars.size());
+        assertEquals("yuzu", bars.iterator().next().name);
+    }
+
+    @Test
+    public void testBoundByTypeSurvivesElementRewriting()
+    {
+        Module module =
+                new AbstractModule()
+                {
+                    @Override
+                    protected void configure()
+                    {
+                        bind(String.class).annotatedWith(named("name")).toInstance("citron");
+                        bind(Bar.class).toProvider(BarProvider.class);
+                    }
+                };
+
+        Injector injector = Guice.createInjector(Modules.override(module).with(new AbstractModule() {}));
+
+        assertEquals("citron", injector.getInstance(Bar.class).name);
+    }
+
+    @Test
+    public void testBindingsByDifferentProviderKeysConflict()
     {
         CreationException exception =
                 assertThrows(
@@ -355,15 +580,44 @@ public class DynamicProviderTest
                                             @Override
                                             protected void configure()
                                             {
-                                                bind(Bar.class).toProvider(BarProvider.class);
+                                                bind(NamingBarProvider.class).annotatedWith(named("a")).toInstance(new NamingBarProvider("a"));
+                                                bind(NamingBarProvider.class).annotatedWith(named("b")).toInstance(new NamingBarProvider("b"));
+                                                bind(Bar.class).toProvider(Key.get(NamingBarProvider.class, named("a")));
+                                                bind(Bar.class).toProvider(Key.get(NamingBarProvider.class, named("b")));
                                             }
                                         }));
 
-        assertContains(exception.getMessage(), "must be bound as an instance");
+        assertContains(exception.getMessage(), "was bound multiple times");
     }
 
     @Test
-    public void testCannotBeBoundByKey()
+    public void testProvidedBy()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).annotatedWith(named("name")).toInstance("loquat");
+                            }
+                        });
+
+        assertEquals("loquat", injector.getInstance(ProvidedThing.class).name);
+        assertNotSame(injector.getInstance(ProvidedThing.class), injector.getInstance(ProvidedThing.class));
+    }
+
+    @Test
+    public void testProvidedByUsesTheTypesScope()
+    {
+        Injector injector = Guice.createInjector();
+
+        assertSame(injector.getInstance(SingletonProvidedThing.class), injector.getInstance(SingletonProvidedThing.class));
+    }
+
+    @Test
+    public void testProvidedByMissingDependencyFailsAtInjectorCreation()
     {
         CreationException exception =
                 assertThrows(
@@ -375,11 +629,45 @@ public class DynamicProviderTest
                                             @Override
                                             protected void configure()
                                             {
-                                                bind(Bar.class).toProvider(Key.get(BarProvider.class));
+                                                getProvider(ProvidedThing.class);
                                             }
                                         }));
 
-        assertContains(exception.getMessage(), "must be bound as an instance");
+        assertContains(
+                exception.getMessage(), "No implementation for String annotated with @Named(\"name\")");
+    }
+
+    @Test
+    public void testProvidedByRejectsAnInvalidProvider()
+    {
+        ConfigurationException exception =
+                assertThrows(
+                        ConfigurationException.class,
+                        () -> Guice.createInjector().getInstance(BadlyProvidedThing.class));
+
+        assertContains(exception.getMessage(), "must have exactly one @Provides method, found 2");
+    }
+
+    @Test
+    public void testUnresolvedTypeParameterIsReportedWithoutStoppingTheModule()
+    {
+        Module module =
+                new AbstractModule()
+                {
+                    @Override
+                    protected void configure()
+                    {
+                        bind(Bar.class).toProvider(new UnresolvedTypeProvider<Bar>());
+                        bind(String.class).toInstance("bound after");
+                    }
+                };
+
+        assertTrue(
+                Elements.getElements(module).stream()
+                        .anyMatch(element -> element instanceof Binding<?> binding && binding.getKey().equals(Key.get(String.class))));
+        CreationException exception = assertThrows(CreationException.class, () -> Guice.createInjector(module));
+        assertEquals(1, exception.getErrorMessages().size(), exception.getMessage());
+        assertContains(exception.getMessage(), "T cannot be used as a key");
     }
 
     @Test
@@ -498,12 +786,12 @@ public class DynamicProviderTest
                                             @Override
                                             protected void configure()
                                             {
-                                                bind(Foo.class).toProvider(FooProvider.class);
+                                                bind(Foo.class).toProvider(NoFooMethodProvider.class);
                                             }
                                         }));
 
         assertEquals(1, exception.getErrorMessages().size(), exception.getMessage());
-        assertContains(exception.getMessage(), "must be bound as an instance");
+        assertContains(exception.getMessage(), "must have exactly one @Provides method, found 0");
     }
 
     @Test
@@ -920,6 +1208,12 @@ public class DynamicProviderTest
         }
     }
 
+    static class FieldBarHolder
+    {
+        @Inject
+        Bar bar;
+    }
+
     static class NullableBarHolder
     {
         final Bar bar;
@@ -1269,6 +1563,135 @@ public class DynamicProviderTest
 
     static class NoFooMethodProvider
             implements DynamicProvider<Foo> {}
+
+    static class NamingBarProvider
+            implements DynamicProvider<Bar>
+    {
+        private final String name;
+
+        NamingBarProvider(String name)
+        {
+            this.name = name;
+        }
+
+        @Provides
+        Bar create()
+        {
+            return new Bar(name);
+        }
+    }
+
+    static class ConstructorInjectedBarProvider
+            implements DynamicProvider<Bar>
+    {
+        private final String name;
+
+        @Inject
+        ConstructorInjectedBarProvider(@Named("name") String name)
+        {
+            this.name = name;
+        }
+
+        @Provides
+        Bar create()
+        {
+            return new Bar(name);
+        }
+    }
+
+    static class ProviderHolder
+    {
+        final Object provider;
+
+        ProviderHolder(Object provider)
+        {
+            this.provider = provider;
+        }
+    }
+
+    static class SelfProvidingProvider
+            implements DynamicProvider<ProviderHolder>
+    {
+        @Provides
+        ProviderHolder create()
+        {
+            return new ProviderHolder(this);
+        }
+    }
+
+    static class ElementListProvider<E>
+            implements DynamicProvider<List<E>>
+    {
+        @Provides
+        List<E> create(E element)
+        {
+            return List.of(element);
+        }
+    }
+
+    static class UnresolvedTypeProvider<T>
+            implements DynamicProvider<T>
+    {
+        @Provides
+        T create()
+        {
+            return null;
+        }
+    }
+
+    @ProvidedBy(ProvidedThingProvider.class)
+    static class ProvidedThing
+    {
+        final String name;
+
+        ProvidedThing(String name)
+        {
+            this.name = name;
+        }
+    }
+
+    static class ProvidedThingProvider
+            implements DynamicProvider<ProvidedThing>
+    {
+        @Provides
+        ProvidedThing create(@Named("name") String name)
+        {
+            return new ProvidedThing(name);
+        }
+    }
+
+    @Singleton
+    @ProvidedBy(SingletonProvidedThingProvider.class)
+    static class SingletonProvidedThing {}
+
+    static class SingletonProvidedThingProvider
+            implements DynamicProvider<SingletonProvidedThing>
+    {
+        @Provides
+        SingletonProvidedThing create()
+        {
+            return new SingletonProvidedThing();
+        }
+    }
+
+    @ProvidedBy(BadlyProvidedThingProvider.class)
+    static class BadlyProvidedThing {}
+
+    static class BadlyProvidedThingProvider
+            implements DynamicProvider<BadlyProvidedThing>
+    {
+        @Provides
+        BadlyProvidedThing create()
+        {
+            return new BadlyProvidedThing();
+        }
+
+        @Provides
+        BadlyProvidedThing createAnother()
+        {
+            return new BadlyProvidedThing();
+        }
+    }
 
     static class OptionalMemberProvider
             implements DynamicProvider<Bar>

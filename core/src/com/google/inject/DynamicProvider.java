@@ -57,9 +57,9 @@ package com.google.inject;
  * annotation or a scope annotation: use {@code annotatedWith()} and {@code in()} on the binding
  * instead.
  *
- * <p>The implementation's {@link Inject} annotated fields and methods are injected like those of any
- * other provider instance bound with {@code toProvider}: when the injector is created, and in any
- * case before the provider method is first called. They may be used to give the provider its own
+ * <p>An instance's {@link Inject} annotated fields and methods are injected like those of any other
+ * provider instance bound with {@code toProvider}: when the injector is created, and in any case
+ * before the provider method is first called. They may be used to give the provider its own
  * collaborators:
  *
  * <pre>{@code
@@ -74,12 +74,20 @@ package com.google.inject;
  * }
  * }</pre>
  *
+ * <p>A {@code DynamicProvider} may also be bound by type, with {@code toProvider(Class)},
+ * {@code toProvider(TypeLiteral)} or {@code toProvider(Key)}, or named by {@link ProvidedBy}. As
+ * with any provider bound by type, the injector gets the instance from that type's binding on every
+ * provision, so it may use constructor injection and is scoped by its own binding. The provider
+ * method is resolved against the type arguments of that type, so a generic provider is bound with a
+ * {@code TypeLiteral} or {@code Key} that supplies them. The provider method is found on the bound
+ * type itself, so a subclass that the type is linked to should not override it.
+ *
  * <p>Binding a {@code DynamicProvider} binds its provider method the way a module's
  * {@literal @}Provides method is bound, so {@link #get()} is never called. It throws
- * {@link UnsupportedOperationException}, and a {@code DynamicProvider} must be bound as an instance
- * rather than by type. Implementing {@code get()} is an error, reported when the instance is bound:
- * an implementation that both provides from {@code get()} and declares a provider method would
- * silently use only the latter, so such a class should implement {@link Provider} instead.
+ * {@link UnsupportedOperationException}, so a {@code DynamicProvider} cannot be used by code that
+ * calls {@code get()} itself. Implementing {@code get()} is an error, reported when the provider is
+ * bound: an implementation that both provides from {@code get()} and declares a provider method
+ * would silently use only the latter, so such a class should implement {@link Provider} instead.
  *
  * @param <T> the type of object this provides
  * @see com.google.inject.binder.LinkedBindingBuilder#toProvider(Provider)
@@ -91,7 +99,7 @@ public interface DynamicProvider<T>
     default T get()
     {
         throw new UnsupportedOperationException(
-                getClass().getName() + " is a DynamicProvider; bind the instance with toProvider() so its"
-                        + " @Provides method is used");
+                getClass().getName() + " is a DynamicProvider; bind it with toProvider() or @ProvidedBy so"
+                        + " its @Provides method is used");
     }
 }

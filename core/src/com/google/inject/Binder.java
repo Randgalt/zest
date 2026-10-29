@@ -84,8 +84,9 @@ import java.lang.reflect.Method;
  * Where {@code ServiceProvider} implements {@link DynamicProvider DynamicProvider&lt;Service&gt;},
  * this binding calls that instance's single {@link Provides @Provides} method, injecting its
  * parameters the same way a module's {@code @Provides} method's parameters are injected. A
- * {@code DynamicProvider} has to be bound as an instance, as shown here, since its {@code get()}
- * method is never the one that provides the instance.
+ * {@code DynamicProvider} bound by type, as in the previous example, works the same way: Guice
+ * resolves the instance in the regular way and calls its {@code @Provides} method rather than
+ * {@code get()}.
  *
  * <pre>
  *     bind(Service.class).annotatedWith(Red.class).to(ServiceImpl.class);</pre>
