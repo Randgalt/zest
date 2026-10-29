@@ -21,6 +21,7 @@ import com.google.inject.Binding;
 import com.google.inject.DynamicProvider;
 import com.google.inject.Key;
 import com.google.inject.Provider;
+import com.google.inject.TypeLiteral;
 import com.google.inject.spi.ConstructorBinding;
 import com.google.inject.spi.ConvertedConstantBinding;
 import com.google.inject.spi.Element;
@@ -160,10 +161,16 @@ final class BindingProcessor
                                 if (provider instanceof ProviderMethod<T> providerMethod
                                         && providerMethod.getInstance() instanceof DynamicProvider<?> dynamicProvider) {
                                     injectionPoints = binding.getInjectionPoints();
+                                    // Its members are resolved against the bound type, as BindingBuilder resolved
+                                    // its injection points
+                                    @SuppressWarnings("unchecked") // the type of dynamicProvider
+                                    TypeLiteral<Object> providerType =
+                                            (TypeLiteral<Object>) BindingBuilder.resolveAgainstBoundType(
+                                                    dynamicProvider.getClass(), key.getTypeLiteral());
                                     initializer.requestInjection(
                                                     injector,
-                                                    /* type= */ null,
-                                                    dynamicProvider,
+                                                    providerType,
+                                                    (Object) dynamicProvider,
                                                     null,
                                                     source,
                                                     injectionPoints,

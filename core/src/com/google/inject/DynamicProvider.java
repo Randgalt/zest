@@ -74,6 +74,12 @@ package com.google.inject;
  * }
  * }</pre>
  *
+ * <p>An instance does not carry the type arguments of a generic class, so they are taken from the
+ * bound type instead: an instance of {@code ConfigProvider<T> implements DynamicProvider<T>} bound to
+ * {@code Foo} has its provider method and members resolved as those of a
+ * {@code ConfigProvider<Foo>}. Such an instance should therefore be bound to exactly the type it
+ * provides.
+ *
  * <p>A {@code DynamicProvider} may also be bound by type, with {@code toProvider(Class)},
  * {@code toProvider(TypeLiteral)} or {@code toProvider(Key)}, or named by {@link ProvidedBy}. As
  * with any provider bound by type, the injector gets the instance from that type's binding on every

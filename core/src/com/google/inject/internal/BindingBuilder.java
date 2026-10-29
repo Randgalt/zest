@@ -17,6 +17,7 @@
 package com.google.inject.internal;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.reflect.TypeResolver;
 import com.google.common.reflect.TypeToken;
 import com.google.inject.Binder;
 import com.google.inject.ConfigurationException;
@@ -31,10 +32,14 @@ import com.google.inject.spi.Element;
 import com.google.inject.spi.InjectionPoint;
 import com.google.inject.spi.Message;
 import com.google.inject.util.Providers;
+import com.google.inject.util.Types;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -194,8 +199,9 @@ public final class BindingBuilder<T>
      */
     private BindingBuilder<T> toDynamicProviderInstance(DynamicProvider<?> dynamicProvider)
     {
-        Class<?> providerType = dynamicProvider.getClass();
-        ProviderMethod<?> providerMethod = findProviderMethod(TypeLiteral.get(providerType));
+        TypeLiteral<?> providerType =
+                resolveAgainstBoundType(dynamicProvider.getClass(), getBinding().getKey().getTypeLiteral());
+        ProviderMethod<?> providerMethod = findProviderMethod(providerType);
         if (providerMethod == null) {
             return toPlaceholder();
         }
@@ -227,6 +233,35 @@ public final class BindingBuilder<T>
                                 true,
                                 providerMethod.getAnnotation())));
         return this;
+    }
+
+    /**
+     * Returns {@code providerClass}, a DynamicProvider class, with the type arguments that an instance
+     * does not carry taken from {@code boundType}: a {@code ConfigProvider<T> implements
+     * DynamicProvider<T>} bound to {@code Foo} is a {@code ConfigProvider<Foo>}. A type parameter that
+     * the bound type does not determine is left unresolved, and so is reported if the provider method
+     * or a member uses it.
+     */
+    static TypeLiteral<?> resolveAgainstBoundType(Class<?> providerClass, TypeLiteral<?> boundType)
+    {
+        TypeVariable<?>[] typeParameters = providerClass.getTypeParameters();
+        if (typeParameters.length == 0) {
+            return TypeLiteral.get(providerClass);
+        }
+
+        // DynamicProvider<X> as providerClass declares it, with X in terms of its type parameters
+        Type declared = TypeLiteral.get(providerClass).getSupertype(DynamicProvider.class).getType();
+        Type bound = Types.newParameterizedType(DynamicProvider.class, boundType.getType());
+        TypeResolver resolver;
+        try {
+            resolver = new TypeResolver().where(declared, bound);
+        }
+        catch (IllegalArgumentException e) {
+            // The bound type has a different shape, such as a supertype of List<E> for DynamicProvider<List<E>>
+            return TypeLiteral.get(providerClass);
+        }
+        Type[] typeArguments = Arrays.stream(typeParameters).map(resolver::resolveType).toArray(Type[]::new);
+        return TypeLiteral.get(Types.newParameterizedTypeWithOwner(providerClass.getEnclosingClass(), providerClass, typeArguments));
     }
 
     /**

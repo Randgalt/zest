@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -657,7 +658,7 @@ public class DynamicProviderTest
                     @Override
                     protected void configure()
                     {
-                        bind(Bar.class).toProvider(new UnresolvedTypeProvider<Bar>());
+                        bind(Bar.class).toProvider(new UnresolvedTypeProvider<Bar, String>());
                         bind(String.class).toInstance("bound after");
                     }
                 };
@@ -667,7 +668,72 @@ public class DynamicProviderTest
                         .anyMatch(element -> element instanceof Binding<?> binding && binding.getKey().equals(Key.get(String.class))));
         CreationException exception = assertThrows(CreationException.class, () -> Guice.createInjector(module));
         assertEquals(1, exception.getErrorMessages().size(), exception.getMessage());
-        assertContains(exception.getMessage(), "T cannot be used as a key");
+        assertContains(exception.getMessage(), "U cannot be used as a key");
+    }
+
+    @Test
+    public void testGenericInstanceIsResolvedAgainstTheBoundType()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).toInstance("pear");
+                                bind(Integer.class).toInstance(7);
+                                bind(new TypeLiteral<Labeled<String>>() {}).toProvider(new LabeledProvider<>("fruit"));
+                                bind(new TypeLiteral<Labeled<Integer>>() {}).toProvider(new LabeledProvider<>("count"));
+                            }
+                        });
+
+        Labeled<String> fruit = injector.getInstance(new Key<Labeled<String>>() {});
+        assertEquals("fruit", fruit.label);
+        assertEquals("pear", fruit.value);
+        Labeled<Integer> count = injector.getInstance(new Key<Labeled<Integer>>() {});
+        assertEquals("count", count.label);
+        assertEquals(7, count.value);
+    }
+
+    @Test
+    public void testGenericInstanceMembersAreResolvedAgainstTheBoundType()
+    {
+        Injector injector =
+                Guice.createInjector(
+                        new AbstractModule()
+                        {
+                            @Override
+                            protected void configure()
+                            {
+                                bind(String.class).toInstance("plum");
+                                bind(new TypeLiteral<List<String>>() {}).toProvider(new MemberTypedProvider<>());
+                            }
+                        });
+
+        assertEquals(List.of("plum"), injector.getInstance(new Key<List<String>>() {}));
+    }
+
+    @Test
+    public void testGenericInstanceBoundToASupertypeIsReported()
+    {
+        // The bound type does not determine E, so the provider method's parameter cannot be a key
+        CreationException exception =
+                assertThrows(
+                        CreationException.class,
+                        () ->
+                                Guice.createInjector(
+                                        new AbstractModule()
+                                        {
+                                            @Override
+                                            protected void configure()
+                                            {
+                                                bind(new TypeLiteral<Collection<String>>() {}).toProvider(new ElementListProvider<String>());
+                                            }
+                                        }));
+
+        assertEquals(1, exception.getErrorMessages().size(), exception.getMessage());
+        assertContains(exception.getMessage(), "E cannot be used as a key");
     }
 
     @Test
@@ -1629,13 +1695,55 @@ public class DynamicProviderTest
         }
     }
 
-    static class UnresolvedTypeProvider<T>
+    static class UnresolvedTypeProvider<T, U>
             implements DynamicProvider<T>
     {
         @Provides
-        T create()
+        T create(U unresolved)
         {
             return null;
+        }
+    }
+
+    static class LabeledProvider<T>
+            implements DynamicProvider<Labeled<T>>
+    {
+        private final String label;
+
+        LabeledProvider(String label)
+        {
+            this.label = label;
+        }
+
+        @Provides
+        Labeled<T> create(T value)
+        {
+            return new Labeled<>(label, value);
+        }
+    }
+
+    static class Labeled<T>
+    {
+        final String label;
+        final T value;
+
+        Labeled(String label, T value)
+        {
+            this.label = label;
+            this.value = value;
+        }
+    }
+
+    static class MemberTypedProvider<T>
+            implements DynamicProvider<List<T>>
+    {
+        @Inject
+        T member;
+
+        @Provides
+        List<T> create()
+        {
+            return List.of(member);
         }
     }
 
