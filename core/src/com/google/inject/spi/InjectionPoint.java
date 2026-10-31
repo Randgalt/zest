@@ -44,6 +44,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -188,8 +189,9 @@ public final class InjectionPoint
 
     /**
      * Returns true if {@code annotations} include {@link EmptyIfUnbound}, which requires the injected
-     * type to be an {@code Optional} of a fully specified type, or an {@code OptionalInt},
-     * {@code OptionalLong} or {@code OptionalDouble}.
+     * type to be an {@code Optional} of a fully specified type, an {@code OptionalInt},
+     * {@code OptionalLong} or {@code OptionalDouble}, or a {@code Set}, {@code Collection} or
+     * {@code Map}.
      */
     private static boolean isEmptyIfUnbound(Key<?> key, Annotation[] annotations, Errors errors)
             throws ErrorsException
@@ -199,6 +201,9 @@ public final class InjectionPoint
         }
         Class<?> rawType = key.getTypeLiteral().getRawType();
         if (rawType == OptionalInt.class || rawType == OptionalLong.class || rawType == OptionalDouble.class) {
+            return true;
+        }
+        if (rawType == Set.class || rawType == Collection.class || rawType == Map.class) {
             return true;
         }
         if (rawType == Optional.class

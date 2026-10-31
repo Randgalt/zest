@@ -26,7 +26,9 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 /**
  * Annotates an injected {@code Optional<T>} parameter or field to receive {@code Optional.empty()}
- * when {@code T} is not bound, rather than fail with "No implementation for T was bound":
+ * when {@code T} is not bound, rather than fail with "No implementation for T was bound", or an
+ * injected {@code Set}, {@code Collection} or {@code Map} to receive an empty one when it is not
+ * bound:
  *
  * <pre>{@code
  * class ReportGenerator
@@ -65,7 +67,24 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
  * Server(@EmptyIfUnbound @Named("port") OptionalInt port) { ... }
  * }</pre>
  *
+ * <p>An injected {@code Set}, {@code Collection} or {@code Map}, such as one bound by
+ * {@link com.google.inject.multibindings.Multibinder} or
+ * {@link com.google.inject.multibindings.MapBinder}, may also be annotated, to receive an empty,
+ * immutable collection when it is not bound. This lets a class depend on contributions that no
+ * module may make:
+ *
+ * <pre>{@code
+ * @Inject
+ * ReportGenerator(@EmptyIfUnbound Set<ReportSection> sections) { ... }
+ * }</pre>
+ *
+ * <p>The collection is empty only when nothing binds it, so one that a {@code Multibinder} or
+ * {@code MapBinder} declares is used as usual, even when no module adds to it. As with an
+ * {@code Optional}, any binding annotation qualifies the collection, as it does the binder's.
+ *
  * @see com.google.inject.multibindings.OptionalBinder
+ * @see com.google.inject.multibindings.Multibinder
+ * @see com.google.inject.multibindings.MapBinder
  */
 @Target({PARAMETER, FIELD})
 @Retention(RUNTIME)

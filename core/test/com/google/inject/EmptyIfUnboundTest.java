@@ -16,17 +16,22 @@
 
 package com.google.inject;
 
+import com.google.inject.multibindings.MapBinder;
+import com.google.inject.multibindings.Multibinder;
 import com.google.inject.multibindings.OptionalBinder;
 import com.google.inject.name.Named;
 import com.google.inject.spi.Dependency;
 import com.google.inject.spi.InjectionPoint;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import static com.google.inject.Asserts.assertContains;
 import static com.google.inject.name.Names.named;
@@ -296,8 +301,99 @@ public class EmptyIfUnboundTest
                         () -> Guice.createInjector(binder -> binder.bind(NotOptionalInjected.class)));
         assertContains(
                 exception.getMessage(),
-                "@EmptyIfUnbound requires an Optional of a fully specified type, OptionalInt, OptionalLong or"
-                        + " OptionalDouble, but the injected type is String.");
+                "@EmptyIfUnbound requires an Optional of a fully specified type, OptionalInt, OptionalLong,"
+                        + " OptionalDouble, Set, Collection or Map, but the injected type is String.");
+
+        exception =
+                assertThrows(
+                        CreationException.class,
+                        () -> Guice.createInjector(binder -> binder.bind(ListInjected.class)));
+        assertContains(exception.getMessage(), "but the injected type is List<EmptyIfUnboundTest$Service>.");
+    }
+
+    @Test
+    public void testMultibinderSet()
+    {
+        SetInjected unbound = Guice.createInjector().getInstance(SetInjected.class);
+        assertEquals(Set.of(), unbound.services);
+        assertEquals(Set.of(), unbound.extendsServices);
+        assertEquals(List.of(), List.copyOf(unbound.providers));
+        assertThrows(UnsupportedOperationException.class, () -> unbound.services.add(new RealService()));
+
+        RealService service = new RealService();
+        SetInjected bound =
+                Guice.createInjector(binder -> Multibinder.newSetBinder(binder, Service.class).addBinding().toInstance(service))
+                        .getInstance(SetInjected.class);
+        assertEquals(Set.of(service), bound.services);
+        assertEquals(Set.of(service), bound.extendsServices);
+        assertSame(service, bound.providers.iterator().next().get());
+    }
+
+    @Test
+    public void testAnnotatedMultibinder()
+    {
+        RealService service = new RealService();
+        Injector unannotated =
+                Guice.createInjector(binder -> Multibinder.newSetBinder(binder, Service.class).addBinding().toInstance(service));
+        assertEquals(Set.of(), unannotated.getInstance(NamedSetInjected.class).services);
+
+        Injector annotated =
+                Guice.createInjector(
+                        binder -> Multibinder.newSetBinder(binder, Service.class, named("audit")).addBinding().toInstance(service));
+        assertEquals(Set.of(service), annotated.getInstance(NamedSetInjected.class).services);
+    }
+
+    @Test
+    public void testMapBinder()
+    {
+        MapInjected unbound = Guice.createInjector().getInstance(MapInjected.class);
+        assertEquals(Map.of(), unbound.services);
+        assertEquals(Map.of(), unbound.providers);
+        assertEquals(Map.of(), unbound.multimap);
+        assertThrows(UnsupportedOperationException.class, () -> unbound.services.put("real", new RealService()));
+
+        RealService service = new RealService();
+        MapInjected bound =
+                Guice.createInjector(
+                                binder -> MapBinder.newMapBinder(binder, String.class, Service.class)
+                                        .permitDuplicates()
+                                        .addBinding("real")
+                                        .toInstance(service))
+                        .getInstance(MapInjected.class);
+        assertEquals(Map.of("real", service), bound.services);
+        assertSame(service, bound.providers.get("real").get());
+        assertEquals(Map.of("real", Set.of(service)), bound.multimap);
+    }
+
+    @Test
+    public void testCollectionInProvidesMethod()
+    {
+        Module providesModule =
+                new AbstractModule()
+                {
+                    @Provides
+                    String describe(@EmptyIfUnbound Set<Service> services)
+                    {
+                        return services.size() + " services";
+                    }
+                };
+
+        assertEquals("0 services", Guice.createInjector(providesModule).getInstance(String.class));
+        assertEquals(
+                "1 services",
+                Guice.createInjector(
+                                providesModule,
+                                binder -> Multibinder.newSetBinder(binder, Service.class).addBinding().to(RealService.class))
+                        .getInstance(String.class));
+    }
+
+    @Test
+    public void testOptionalOfCollection()
+    {
+        assertEquals(Optional.empty(), Guice.createInjector().getInstance(OptionalSetInjected.class).services);
+
+        Injector declared = Guice.createInjector(binder -> Multibinder.newSetBinder(binder, Service.class));
+        assertEquals(Optional.of(Set.of()), declared.getInstance(OptionalSetInjected.class).services);
     }
 
     @Test
@@ -322,6 +418,9 @@ public class EmptyIfUnboundTest
         Dependency<?> portDependency = InjectionPoint.forConstructorOf(PrimitiveInjected.class).getDependencies().get(0);
         assertTrue(portDependency.isEmptyIfUnbound());
         assertEquals(Key.get(OptionalInt.class, named("port")), portDependency.getKey());
+        Dependency<?> setDependency = InjectionPoint.forConstructorOf(NamedSetInjected.class).getDependencies().get(0);
+        assertTrue(setDependency.isEmptyIfUnbound());
+        assertEquals(new Key<Set<Service>>(named("audit")) {}, setDependency.getKey());
     }
 
     interface Service
@@ -458,6 +557,67 @@ public class EmptyIfUnboundTest
     {
         @Inject
         NotOptionalInjected(@EmptyIfUnbound String value) {}
+    }
+
+    static class ListInjected
+    {
+        @Inject
+        ListInjected(@EmptyIfUnbound List<Service> services) {}
+    }
+
+    static class SetInjected
+    {
+        final Set<Service> services;
+        final Set<? extends Service> extendsServices;
+        final Collection<Provider<Service>> providers;
+
+        @Inject
+        SetInjected(
+                @EmptyIfUnbound Set<Service> services,
+                @EmptyIfUnbound Set<? extends Service> extendsServices,
+                @EmptyIfUnbound Collection<Provider<Service>> providers)
+        {
+            this.services = services;
+            this.extendsServices = extendsServices;
+            this.providers = providers;
+        }
+    }
+
+    static class NamedSetInjected
+    {
+        final Set<Service> services;
+
+        @Inject
+        NamedSetInjected(@EmptyIfUnbound @Named("audit") Set<Service> services)
+        {
+            this.services = services;
+        }
+    }
+
+    static class MapInjected
+    {
+        @Inject
+        @EmptyIfUnbound
+        Map<String, Service> services;
+
+        @Inject
+        @EmptyIfUnbound
+        Map<String, Provider<Service>> providers;
+
+        @Inject
+        @EmptyIfUnbound
+        Map<String, Set<Service>> multimap;
+    }
+
+    static class OptionalSetInjected
+    {
+        final Optional<Set<Service>> services;
+
+        @Inject
+        OptionalSetInjected(@EmptyIfUnbound Optional<Set<Service>> services)
+        {
+            this.services = services;
+        }
     }
 
     static class WildcardInjected

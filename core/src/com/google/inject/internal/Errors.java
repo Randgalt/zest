@@ -376,8 +376,8 @@ public final class Errors
     {
         return addMessage(
                 ErrorId.EMPTY_IF_UNBOUND_UNSUPPORTED_TYPE,
-                "@EmptyIfUnbound requires an Optional of a fully specified type, OptionalInt, OptionalLong or"
-                        + " OptionalDouble, but the injected type is %s.",
+                "@EmptyIfUnbound requires an Optional of a fully specified type, OptionalInt, OptionalLong,"
+                        + " OptionalDouble, Set, Collection or Map, but the injected type is %s.",
                 type);
     }
 

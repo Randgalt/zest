@@ -111,9 +111,10 @@ public final class Dependency<T>
 
     /**
      * Returns true if this dependency is annotated with {@link EmptyIfUnbound}: an {@code Optional<T>}
-     * that is empty when {@code T} is not bound, or an {@code OptionalInt}, {@code OptionalLong} or
+     * that is empty when {@code T} is not bound, an {@code OptionalInt}, {@code OptionalLong} or
      * {@code OptionalDouble} that is empty when {@code Integer}, {@code Long} or {@code Double} is
-     * not bound.
+     * not bound, or a {@code Set}, {@code Collection} or {@code Map} that is empty when it is not
+     * bound.
      */
     public boolean isEmptyIfUnbound()
     {

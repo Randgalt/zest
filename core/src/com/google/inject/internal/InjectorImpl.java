@@ -748,8 +748,10 @@ final class InjectorImpl
             Key<?> depKey = dep.getKey();
             boolean mayBeUnbound = false;
             if (dep.isEmptyIfUnbound() && bindingData.getExplicitBinding(depKey) == null) {
-                // The dependency is on the optional's value, which need not be bound
-                depKey = EmptyIfUnboundFactory.getValueKey(depKey);
+                // The dependency need not be bound, and for an optional is on its value
+                if (EmptyIfUnboundFactory.isOptional(depKey)) {
+                    depKey = EmptyIfUnboundFactory.getValueKey(depKey);
+                }
                 mayBeUnbound = true;
             }
             InjectionPoint ip = dep.getInjectionPoint();
@@ -1256,18 +1258,46 @@ final class InjectorImpl
 
     /**
      * Returns the factory that satisfies {@code dependency}, which is that of its key's binding unless
-     * it is an {@link EmptyIfUnbound} dependency on an optional that is not bound.
+     * it is an {@link EmptyIfUnbound} dependency that is not bound.
      */
     <T> InternalFactory<? extends T> getDependencyFactory(Dependency<T> dependency, Errors errors)
             throws ErrorsException
     {
-        if (dependency.isEmptyIfUnbound() && bindingData.getExplicitBinding(dependency.getKey()) == null) {
+        Key<T> key = dependency.getKey();
+        if (!dependency.isEmptyIfUnbound()) {
+            return getBindingOrThrow(key, errors, JitLimitation.NO_JIT).getInternalFactory();
+        }
+        if (EmptyIfUnboundFactory.isOptional(key)) {
+            BindingImpl<T> optionalBinding = bindingData.getExplicitBinding(key);
+            if (optionalBinding != null) {
+                return optionalBinding.getInternalFactory();
+            }
             @SuppressWarnings("unchecked") // the factory provides the dependency's optional type
             InternalFactory<? extends T> factory =
                     (InternalFactory<? extends T>) createOptionalFactory(dependency, errors);
             return factory;
         }
-        return getBindingOrThrow(dependency.getKey(), errors, JitLimitation.NO_JIT).getInternalFactory();
+        // InjectionPoint checks that any other key is a Set, Collection or Map
+        BindingImpl<T> binding = getBindingIfBound(key, errors);
+        if (binding != null) {
+            return binding.getInternalFactory();
+        }
+        @SuppressWarnings("unchecked") // the empty collection is of the key's raw type
+        InternalFactory<? extends T> factory =
+                (InternalFactory<? extends T>) ConstantFactory.create(
+                        emptyCollection(key.getTypeLiteral().getRawType()), SourceProvider.UNKNOWN_SOURCE);
+        return factory;
+    }
+
+    private static Object emptyCollection(Class<?> rawType)
+    {
+        if (rawType == Set.class) {
+            return ImmutableSet.of();
+        }
+        if (rawType == Map.class) {
+            return ImmutableMap.of();
+        }
+        return ImmutableList.of();
     }
 
     private InternalFactory<?> createOptionalFactory(Dependency<?> dependency, Errors errors)
